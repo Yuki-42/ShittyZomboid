@@ -36,6 +36,8 @@
 //
 // ------------------------------------------
 
+using System;
+
 namespace Player
 {
     using Config;
@@ -189,12 +191,10 @@ namespace Player
             _controller = GetComponent<CharacterController>();
             _playerConfig = GetComponent<PlayerConfig>();
 
-            _playerTransform = transform;
             _defaultHeight = _controller.height;
-            _lastSpeed = 0;
-            _fauxGravity = Vector3.up * gravity;
-            _lastPos = _playerTransform.position;
             _cameraDefaultY = playerCameraTransform.localPosition.y;
+            
+            _lastPos = _playerTransform.position;
             _groundOffsetY = groundCheckY;
             _ceilingOffsetY = ceilingCheckY;
 
@@ -231,8 +231,9 @@ namespace Player
         
         private void HandleCamera()
         {
-            float mouseX = inputLook.x * _mouseSensitivity.x * 100f * Time.deltaTime;
-            float mouseY = inputLook.y * _mouseSensitivity.y * 100f * Time.deltaTime;
+            // TODO: Fix the jittery movement
+            float mouseX = inputLook.x * _mouseSensitivity.x * 100f * Time.fixedDeltaTime;
+            float mouseY = inputLook.y * _mouseSensitivity.y * 100f * Time.fixedDeltaTime;
 
             // Rotate camera X
             xRotation += invertLookY ? mouseY : -mouseY;
@@ -244,53 +245,69 @@ namespace Player
             _playerTransform.Rotate(Vector3.up * mouseX);
         }
 
+        private void OnCollisionEnter(Collision other)
+        {
+            
+        }
+
+        private void OnCollisionExit(Collision other)
+        {
+            
+        }
+
         private void ProcessMovement()
         {
             
-            
-            
-            
-            
-            
-            
-            
+        }
+
+        /*
+        private void ProcessMovement()
+        {
+
+
+
+
+
+
+
+
             // ALL OF THIS CODE IS TERRIBLE AND SHOULD BE REWRITTEN USING THIS GUIDE AND A BRAIN https://discussions.unity.com/t/proper-velocity-based-movement-101/659301
-            
+
             // // - variables -
             // float vScale = 1f; // for calculating GFX scale (optional)
             // float h = _defaultHeight;
             // float nextSpeed = walkSpeed;
             // Vector3 calc; // used for calculations
-// 
+            //
             // // Player current speed
             // float currSpeed = (_playerTransform.position - _lastPos).magnitude / Time.deltaTime;
             // currSpeed = currSpeed < 0 ? 0 - currSpeed : currSpeed; // Get the absolute value, regardless of vector direction
-// 
+            //
             // // Grounded Checks
             // GroundCheck();
             // isSlipping = groundSlopeAngle > _controller.slopeLimit;
-// 
+            //
             // // Headroom Check
             // CeilingCheck();
-// 
+            //
             // // - Run and Crouch -
-// 
+            //
             // // If the player is grounded and not stuck on ceiling, apply speed increases
             // if (isGrounded && !isCeiling)
             // {
             //     if (inputKeyRun) nextSpeed = runSpeed;
             //     if (inputKeySprint) nextSpeed = sprintSpeed;
             // }
-// 
+            //
             // if (inputKeyCrouch) // Crouch
             // {
             //     vScale = 0.5f;
             //     h = 0.5f * _defaultHeight;
             //     nextSpeed = crouchWalkSpeed; // slow down when crouching
             // }
-// 
+            //
             // // - Slide -
-// 
+            //
             // // // if not sliding, and not stuck on ceiling, and is running
             // // if (!isCeiling && inputKeyRun && inputKeyDownSlide) // slide
             // // {
@@ -303,47 +320,47 @@ namespace Player
             // //     }
             // // }
             // // _lastPos = _playerTransform.position; // update reference
-// 
-// 
+            //
+            //
             // // - Player Move Input -
             // Vector3 move = (_playerTransform.right * inputMove.x) + (_playerTransform.forward * inputMove.y); // direction calculation
-// 
+            //
             // if (move.magnitude > 1f)
             // {
             //     move = move.normalized;
             // }
-// 
-// 
+            //
+            //
             // // - Height -
-// 
+            //
             // // crouch/stand up smoothly
             // float lastHeight = _controller.height;
-            // float nextHeight = Mathf.Lerp(_controller.height, h, 5f * Time.deltaTime); 
-// 
+            // float nextHeight = Mathf.Lerp(_controller.height, h, 5f * Time.deltaTime);
+            //
             // // if crouching, or only stand if there is no ceiling
             // if (nextHeight < lastHeight || !isCeiling)
             // {
             //     _controller.height = Mathf.Lerp(_controller.height, h, 5f * Time.deltaTime);
-// 
+            //
             //     // fix vertical position
             //     calc = _playerTransform.position;
             //     calc.y += (_controller.height - lastHeight) / 2f;
             //     _playerTransform.position = calc;
-// 
+            //
             //     // offset camera
             //     calc = playerCameraTransform.localPosition;
             //     calc.y = (_controller.height / _defaultHeight) + _cameraDefaultY - (_defaultHeight * 0.5f);
             //     playerCameraTransform.localPosition = calc;
-// 
+            //
             //     // calculate offset
             //     float heightFactor = (_defaultHeight - _controller.height) * 0.5f;
-// 
+            //
             //     // offset ground check
             //     _groundOffsetY = heightFactor + groundCheckY;
-// 
+            //
             //     // offset ceiling check
             //     _ceilingOffsetY = heightFactor + _controller.height - (_defaultHeight - ceilingCheckY);
-// 
+            //
             //     // scale gfx (optional)
             //     if (playerGfx)
             //     {
@@ -352,12 +369,12 @@ namespace Player
             //         playerGfx.localScale = calc;
             //     }
             // }
-// 
+            //
             // // - Slipping Jumping Gravity -
-// 
+            //
             // // Smooth speed  // ?????????? What????
             // float speed;
-// 
+            //
             // if (isGrounded)
             // {
             //     if (isSlipping) // slip down slope
@@ -368,10 +385,10 @@ namespace Player
             //         float dot = Vector3.Dot(slopeRight, _playerTransform.right);
             //         // Move on X axis, with Y rotation relative to slopeDir
             //         move = slopeRight * (dot > 0 ? inputMove.x : -inputMove.x);
-// 
+            //
             //         // Speed
             //         nextSpeed = Mathf.Lerp(currSpeed, runSpeed, 5f * Time.deltaTime);
-// 
+            //
             //         // Increase angular gravity
             //         float mag = _fauxGravity.magnitude;
             //         calc = Vector3.Slerp(_fauxGravity, groundSlopeDir * runSpeed, 4f * Time.deltaTime);
@@ -382,22 +399,22 @@ namespace Player
             //         // reset angular fauxGravity movement
             //         _fauxGravity.x = 0;
             //         _fauxGravity.z = 0;
-// 
+            //
             //         if (_fauxGravity.y < 0) // constant grounded gravity
             //         {
             //             //fauxGravity.y = -1f;
             //             _fauxGravity.y = Mathf.Lerp(_fauxGravity.y, -1f, 4f * Time.deltaTime);
             //         }
             //     }
-// 
+            //
             //     // - Jump -
             //     if (!isCeiling && inputKeyJump) // jump
             //     {
             //         _fauxGravity.y = Mathf.Sqrt(jumpHeight * -2f * gravity);
             //     }
-// 
+            //
             //     // --
-// 
+            //
             //     // - smooth speed -
             //     // take less time to slow down, more time speed up
             //     float lerpFactor = (_lastSpeed > nextSpeed ? 4f : 2f);
@@ -407,36 +424,36 @@ namespace Player
             // {
             //     speed = Mathf.Lerp(_lastSpeed, nextSpeed, 0.125f * Time.deltaTime);
             // }
-// 
+            //
             // // prevent floating if jumping into a ceiling
             // if (isCeiling)
             // {
             //     speed = crouchWalkSpeed; // clamp speed to crouched
-// 
+            //
             //     if (_fauxGravity.y > 0)
             //     {
             //         _fauxGravity.y = -1f; // 0;
             //     }
             // }
-// 
+            //
             // _lastSpeed = speed; // update reference
-            // 
+            //
             // // - Add Gravity -
             // _fauxGravity.y += gravity * Time.deltaTime;
-// 
+            //
             // // Do movement calculations
             // calc = move * (speed * Time.deltaTime);
             // calc += _fauxGravity * Time.deltaTime;
-            // 
+            //
             // // Apply speed cap
             // calc = new Vector3(
             //     Mathf.Clamp(calc.x, -horizontalSpeedCap, horizontalSpeedCap),
             //     Mathf.Clamp(calc.y, -horizontalSpeedCap, horizontalSpeedCap),
             //     Mathf.Clamp(calc.z, -verticalSpeedCap, verticalSpeedCap)
             //     );
-            // 
+            //
             // _controller.Move(calc);
-            // 
+            //
             // // - DEBUG -
 
 #if UNITY_EDITOR
@@ -458,7 +475,7 @@ namespace Player
                 case null when Cursor.lockState == CursorLockMode.Locked:  // When doLock is null and the cursor is locked, unlock it
                     Cursor.lockState = CursorLockMode.None;
                     return;
-                case null:  // When doLock is null, the previous check has failed we know that the cursor is unlocked 
+                case null:  // When doLock is null, the previous check has failed we know that the cursor is unlocked
                     Cursor.lockState = CursorLockMode.Locked;
                     return;
                 case true:
@@ -604,7 +621,7 @@ namespace Player
             Gizmos.color = (isCeiling ? Color.red : Color.white);
             Gizmos.DrawWireSphere(ceilingPoint, sphereCastRadius);
         }
-#endif
+#endif  */
     }
 
     /*
