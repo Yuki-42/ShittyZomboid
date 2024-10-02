@@ -81,12 +81,13 @@ public class BasicFPCC : MonoBehaviour
     [HideInInspector] public bool inputKeyDownJump   = false;  // is key Pressed
     [HideInInspector] public bool inputKeyDownSlide  = false;  // is key Pressed
     [HideInInspector] public bool inputKeyDownCursor = false;  // is key Pressed
-   
+
     [Header("Look Settings")]
+    public float mouseSensitivityMultiplier = 1f;    // Combined sensitivity multiplier
     public float mouseSensitivityX = 2f;             // speed factor of look X
     public float mouseSensitivityY = 2f;             // speed factor of look Y
     [Tooltip("larger values for less filtering, more responsiveness")]
-    public float mouseSnappiness = 20f;              // default was 10f; larger values of this cause less filtering, more responsiveness
+    public float mouseSnappiness = 2000f;              // default was 10f; larger values of this cause less filtering, more responsiveness
     public bool invertLookY = false;                 // toggle invert look Y
     public float clampLookY = 90f;                   // maximum look up/down angle
    
@@ -128,8 +129,8 @@ public class BasicFPCC : MonoBehaviour
     public float xRotation = 0f;                     // the up/down angle the player is looking
     private float lastSpeed = 0;                     // reference for calculating speed
     private Vector3 fauxGravity = Vector3.zero;      // calculated gravity
-    private float accMouseX = 0;                     // reference for mouse look smoothing
-    private float accMouseY = 0;                     // reference for mouse look smoothing
+    // private float accMouseX = 0;                     // reference for mouse look smoothing
+    // private float accMouseY = 0;                     // reference for mouse look smoothing
     private Vector3 lastPos = Vector3.zero;          // reference for player velocity 
     [Space(5)]
     public bool isGrounded = false;
@@ -155,6 +156,8 @@ public class BasicFPCC : MonoBehaviour
 
     void Update()
     {
+        // Check for settings updates for expensive calculations
+
         ProcessInputs();
         ProcessLook();
         ProcessMovement();
@@ -162,6 +165,11 @@ public class BasicFPCC : MonoBehaviour
 
     private void Initialize()
     {
+        // Calculate actual mouse sensitivity
+        mouseSensitivityX *= mouseSensitivityMultiplier;
+        mouseSensitivityY *= mouseSensitivityMultiplier;
+
+        // Do whatever this is
         if ( !cameraTx ) { Debug.LogError( "* " + gameObject.name + ": BasicFPCC has NO CAMERA ASSIGNED in the Inspector *" ); }
        
         controller = GetComponent< CharacterController >();
@@ -204,14 +212,14 @@ public class BasicFPCC : MonoBehaviour
 
     private void ProcessLook()
     {
-        accMouseX = Mathf.Lerp( accMouseX, inputLookX, mouseSnappiness * Time.deltaTime );
-        accMouseY = Mathf.Lerp( accMouseY, inputLookY, mouseSnappiness * Time.deltaTime );
+        // accMouseX = Mathf.Lerp( accMouseX, inputLookX, mouseSnappiness * Time.deltaTime );
+        // accMouseY = Mathf.Lerp( accMouseY, inputLookY, mouseSnappiness * Time.deltaTime );
 
-        float mouseX = accMouseX * mouseSensitivityX * 100f * Time.deltaTime;
-        float mouseY = accMouseY * mouseSensitivityY * 100f * Time.deltaTime;
+        float mouseX = inputLookX * mouseSensitivityX * 100f * Time.deltaTime;
+        float mouseY = inputLookY * mouseSensitivityY * 100f * Time.deltaTime;
 
         // Rotate camera X
-        xRotation += ( invertLookY == true ? mouseY : -mouseY );
+        xRotation += invertLookY ? mouseY : -mouseY;
         xRotation = Mathf.Clamp( xRotation, -clampLookY, clampLookY );
 
         cameraTx.localRotation = Quaternion.Euler( xRotation, 0f, 0f );

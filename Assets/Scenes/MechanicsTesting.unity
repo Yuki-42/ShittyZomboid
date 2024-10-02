@@ -217,7 +217,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   castingMask:
     serializedVersion: 2
-    m_Bits: 4294967295
+    m_Bits: 147
   cameraTx: {fileID: 1793726257}
   playerGFX: {fileID: 0}
   useLocalInputs: 1
@@ -239,6 +239,7 @@ MonoBehaviour:
   inputKeyDownJump: 0
   inputKeyDownSlide: 0
   inputKeyDownCursor: 0
+  mouseSensitivityMultiplier: 1
   mouseSensitivityX: 2
   mouseSensitivityY: 2
   mouseSnappiness: 20
