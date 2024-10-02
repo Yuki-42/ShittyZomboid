@@ -30,6 +30,9 @@
 //
 // TODOs
 // 1. Implement a sprint-vector check to ensure the player is only sprinting forwards to disallow sprinting backwards
+// 2. Rework the movement system to use character acceleration instead of directly moving the character
+// 3. Clamp both vertical and horizontal max speed.
+// 4. Fix insane speed issue when falling off solid surface
 //
 // ------------------------------------------
 
@@ -44,7 +47,7 @@ namespace Player
 
     [RequireComponent(typeof(CharacterController))]
     [RequireComponent(typeof(PlayerConfig))]
-    public class BasicFPCC : MonoBehaviour
+    public class PlayerController : MonoBehaviour
     {
         [Header("Layer Mask")]
         [Tooltip("Layer Mask for sphere/raycasts. Assign the Player object to a Layer, then Ignore that layer here.")]
@@ -53,10 +56,10 @@ namespace Player
         // - Components -
         private CharacterController _controller; // CharacterController component
         private PlayerConfig _playerConfig; // PlayerConfig component
-        private Transform _playerTx; // this player object
+        private Transform _playerTransform; // this player object
 
         [Header("Main Camera")]
-        public Transform cameraTx; // Main Camera, as child of BasicFPCC object
+        public Transform playerCameraTransform; // Main Camera, as child of BasicFPCC object
         public Camera playerCamera;
 
         [Header("Optional Player Graphic")] [Tooltip("optional capsule to visualize player in scene view")]
@@ -85,7 +88,9 @@ namespace Player
         public float runSpeed = 12f;
         public float sprintSpeed = 16f;
         public float gravity = -9.81f;
-        public float jumpHeight = 2.5f;
+        public float jumpHeight = 1f;
+        public float horizontalSpeedCap = 15f;
+        public float verticalSpeedCap = 15f;
 
         [Header("Grounded Settings")]
         [Tooltip("The starting position of the isGrounded spherecast. Set to the sphereCastRadius plus the CC Skin Width. Enable showGizmos to visualize.")]  // What???
@@ -107,9 +112,11 @@ namespace Player
         [Header("Debug Gizmos")] [Tooltip("Show debug gizmos and lines")]
         public bool showGizmos = false; // Show debug gizmos and lines
 
-        // - private reference variables -
-        private float _defaultHeight = 0; // reference to scale player crouch
-        private float _cameraStartY = 0; // reference to move camera with crouch
+        // - private reference variables -  // What does this even mean?
+        
+        // Reference variables
+        private float _defaultHeight; // Normal player height, used for scaling down on crouch
+        private float _cameraDefaultY; // Normal camera Y position within player
 
         [Header("- reference variables -")] public float xRotation = 0f; // the up/down angle the player is looking
         private float _lastSpeed = 0; // reference for calculating speed
@@ -182,12 +189,12 @@ namespace Player
             _controller = GetComponent<CharacterController>();
             _playerConfig = GetComponent<PlayerConfig>();
 
-            _playerTx = transform;
+            _playerTransform = transform;
             _defaultHeight = _controller.height;
             _lastSpeed = 0;
             _fauxGravity = Vector3.up * gravity;
-            _lastPos = _playerTx.position;
-            _cameraStartY = cameraTx.localPosition.y;
+            _lastPos = _playerTransform.position;
+            _cameraDefaultY = playerCameraTransform.localPosition.y;
             _groundOffsetY = groundCheckY;
             _ceilingOffsetY = ceilingCheckY;
 
@@ -195,7 +202,7 @@ namespace Player
             Cursor.lockState = CursorLockMode.Locked;
         }
 
-        private void Update()
+        private void FixedUpdate()
         {
             // Check for settings updates for expensive calculations
             if (_playerConfig.updated)
@@ -206,7 +213,7 @@ namespace Player
                 invertLookY = _playerConfig.InvertYAxis;
             }
             ReadInputs();
-            ProcessLook();
+            HandleCamera();
             ProcessMovement();
         }
 
@@ -222,9 +229,8 @@ namespace Player
         }
         
         
-        private void ProcessLook()
+        private void HandleCamera()
         {
-            
             float mouseX = inputLook.x * _mouseSensitivity.x * 100f * Time.deltaTime;
             float mouseY = inputLook.y * _mouseSensitivity.y * 100f * Time.deltaTime;
 
@@ -232,204 +238,220 @@ namespace Player
             xRotation += invertLookY ? mouseY : -mouseY;
             xRotation = Mathf.Clamp(xRotation, -clampLookY, clampLookY);
 
-            cameraTx.localRotation = Quaternion.Euler(xRotation, 0f, 0f);
+            playerCameraTransform.localRotation = Quaternion.Euler(xRotation, 0f, 0f);
 
             // Rotate player Y
-            _playerTx.Rotate(Vector3.up * mouseX);
+            _playerTransform.Rotate(Vector3.up * mouseX);
         }
 
         private void ProcessMovement()
         {
-            // - variables -
-            float vScale = 1f; // for calculating GFX scale (optional)
-            float h = _defaultHeight;
-            float nextSpeed = walkSpeed;
-            Vector3 calc; // used for calculations
-
-            // Player current speed
-            float currSpeed = (_playerTx.position - _lastPos).magnitude / Time.deltaTime;
-            currSpeed = currSpeed < 0 ? 0 - currSpeed : currSpeed; // Get the absolute value, regardless of vector direction
-
-            // Grounded Checks
-            GroundCheck();
-            isSlipping = groundSlopeAngle > _controller.slopeLimit;
-
-            // Headroom Check
-            CeilingCheck();
-
-            // - Run and Crouch -
-
-            // If the player is grounded and not stuck on ceiling, apply speed increases
-            if (isGrounded && !isCeiling)
-            {
-                if (inputKeyRun) nextSpeed = runSpeed;
-                if (inputKeySprint) nextSpeed = sprintSpeed;
-            }
-
-            if (inputKeyCrouch) // Crouch
-            {
-                vScale = 0.5f;
-                h = 0.5f * _defaultHeight;
-                nextSpeed = crouchWalkSpeed; // slow down when crouching
-            }
-
-            // - Slide -
-
-            // // if not sliding, and not stuck on ceiling, and is running
-            // if (!isCeiling && inputKeyRun && inputKeyDownSlide) // slide
+            
+            
+            
+            
+            
+            
+            
+            
+            // ALL OF THIS CODE IS TERRIBLE AND SHOULD BE REWRITTEN USING THIS GUIDE AND A BRAIN https://discussions.unity.com/t/proper-velocity-based-movement-101/659301
+            
+            // // - variables -
+            // float vScale = 1f; // for calculating GFX scale (optional)
+            // float h = _defaultHeight;
+            // float nextSpeed = walkSpeed;
+            // Vector3 calc; // used for calculations
+// 
+            // // Player current speed
+            // float currSpeed = (_playerTransform.position - _lastPos).magnitude / Time.deltaTime;
+            // currSpeed = currSpeed < 0 ? 0 - currSpeed : currSpeed; // Get the absolute value, regardless of vector direction
+// 
+            // // Grounded Checks
+            // GroundCheck();
+            // isSlipping = groundSlopeAngle > _controller.slopeLimit;
+// 
+            // // Headroom Check
+            // CeilingCheck();
+// 
+            // // - Run and Crouch -
+// 
+            // // If the player is grounded and not stuck on ceiling, apply speed increases
+            // if (isGrounded && !isCeiling)
             // {
-            //     // check velocity is faster than walkSpeed
-            //     if (currSpeed > walkSpeed)
+            //     if (inputKeyRun) nextSpeed = runSpeed;
+            //     if (inputKeySprint) nextSpeed = sprintSpeed;
+            // }
+// 
+            // if (inputKeyCrouch) // Crouch
+            // {
+            //     vScale = 0.5f;
+            //     h = 0.5f * _defaultHeight;
+            //     nextSpeed = crouchWalkSpeed; // slow down when crouching
+            // }
+// 
+            // // - Slide -
+// 
+            // // // if not sliding, and not stuck on ceiling, and is running
+            // // if (!isCeiling && inputKeyRun && inputKeyDownSlide) // slide
+            // // {
+            // //     // check velocity is faster than walkSpeed
+            // //     if (currSpeed > walkSpeed)
+            // //     {
+            // //         slideTimer = 0; // start slide timer
+            // //         isSliding = true;
+            // //         slideForward = (_playerTransform.position - _lastPos).normalized;
+            // //     }
+            // // }
+            // // _lastPos = _playerTransform.position; // update reference
+// 
+// 
+            // // - Player Move Input -
+            // Vector3 move = (_playerTransform.right * inputMove.x) + (_playerTransform.forward * inputMove.y); // direction calculation
+// 
+            // if (move.magnitude > 1f)
+            // {
+            //     move = move.normalized;
+            // }
+// 
+// 
+            // // - Height -
+// 
+            // // crouch/stand up smoothly
+            // float lastHeight = _controller.height;
+            // float nextHeight = Mathf.Lerp(_controller.height, h, 5f * Time.deltaTime); 
+// 
+            // // if crouching, or only stand if there is no ceiling
+            // if (nextHeight < lastHeight || !isCeiling)
+            // {
+            //     _controller.height = Mathf.Lerp(_controller.height, h, 5f * Time.deltaTime);
+// 
+            //     // fix vertical position
+            //     calc = _playerTransform.position;
+            //     calc.y += (_controller.height - lastHeight) / 2f;
+            //     _playerTransform.position = calc;
+// 
+            //     // offset camera
+            //     calc = playerCameraTransform.localPosition;
+            //     calc.y = (_controller.height / _defaultHeight) + _cameraDefaultY - (_defaultHeight * 0.5f);
+            //     playerCameraTransform.localPosition = calc;
+// 
+            //     // calculate offset
+            //     float heightFactor = (_defaultHeight - _controller.height) * 0.5f;
+// 
+            //     // offset ground check
+            //     _groundOffsetY = heightFactor + groundCheckY;
+// 
+            //     // offset ceiling check
+            //     _ceilingOffsetY = heightFactor + _controller.height - (_defaultHeight - ceilingCheckY);
+// 
+            //     // scale gfx (optional)
+            //     if (playerGfx)
             //     {
-            //         slideTimer = 0; // start slide timer
-            //         isSliding = true;
-            //         slideForward = (_playerTx.position - _lastPos).normalized;
+            //         calc = playerGfx.localScale;
+            //         calc.y = Mathf.Lerp(calc.y, vScale, 5f * Time.deltaTime);
+            //         playerGfx.localScale = calc;
             //     }
             // }
-            // _lastPos = _playerTx.position; // update reference
-
-
-            // - Player Move Input -
-            Vector3 move = (_playerTx.right * inputMove.x) + (_playerTx.forward * inputMove.y); // direction calculation
-
-            if (move.magnitude > 1f)
-            {
-                move = move.normalized;
-            }
-
-
-            // - Height -
-
-            // crouch/stand up smoothly
-            float lastHeight = _controller.height;
-            float nextHeight = Mathf.Lerp(_controller.height, h, 5f * Time.deltaTime); 
-
-            // if crouching, or only stand if there is no ceiling
-            if (nextHeight < lastHeight || !isCeiling)
-            {
-                _controller.height = Mathf.Lerp(_controller.height, h, 5f * Time.deltaTime);
-
-                // fix vertical position
-                calc = _playerTx.position;
-                calc.y += (_controller.height - lastHeight) / 2f;
-                _playerTx.position = calc;
-
-                // offset camera
-                calc = cameraTx.localPosition;
-                calc.y = (_controller.height / _defaultHeight) + _cameraStartY - (_defaultHeight * 0.5f);
-                cameraTx.localPosition = calc;
-
-                // calculate offset
-                float heightFactor = (_defaultHeight - _controller.height) * 0.5f;
-
-                // offset ground check
-                _groundOffsetY = heightFactor + groundCheckY;
-
-                // offset ceiling check
-                _ceilingOffsetY = heightFactor + _controller.height - (_defaultHeight - ceilingCheckY);
-
-                // scale gfx (optional)
-                if (playerGfx)
-                {
-                    calc = playerGfx.localScale;
-                    calc.y = Mathf.Lerp(calc.y, vScale, 5f * Time.deltaTime);
-                    playerGfx.localScale = calc;
-                }
-            }
-
-            // - Slipping Jumping Gravity -
-
-            // Smooth speed  // ?????????? What????
-            float speed;
-
-            if (isGrounded)
-            {
-                if (isSlipping) // slip down slope
-                {
-                    // Movement left/right while slipping down
-                    // Player rotation to slope
-                    Vector3 slopeRight = Quaternion.LookRotation(Vector3.right) * groundSlopeDir;
-                    float dot = Vector3.Dot(slopeRight, _playerTx.right);
-                    // Move on X axis, with Y rotation relative to slopeDir
-                    move = slopeRight * (dot > 0 ? inputMove.x : -inputMove.x);
-
-                    // Speed
-                    nextSpeed = Mathf.Lerp(currSpeed, runSpeed, 5f * Time.deltaTime);
-
-                    // Increase angular gravity
-                    float mag = _fauxGravity.magnitude;
-                    calc = Vector3.Slerp(_fauxGravity, groundSlopeDir * runSpeed, 4f * Time.deltaTime);
-                    _fauxGravity = calc.normalized * mag;
-                }
-                else
-                {
-                    // reset angular fauxGravity movement
-                    _fauxGravity.x = 0;
-                    _fauxGravity.z = 0;
-
-                    if (_fauxGravity.y < 0) // constant grounded gravity
-                    {
-                        //fauxGravity.y = -1f;
-                        _fauxGravity.y = Mathf.Lerp(_fauxGravity.y, -1f, 4f * Time.deltaTime);
-                    }
-                }
-
-                // - Jump -
-                if (!isCeiling && inputKeyJump) // jump
-                {
-                    _fauxGravity.y = Mathf.Sqrt(jumpHeight * -2f * gravity);
-                }
-
-                // --
-
-                // - smooth speed -
-                // take less time to slow down, more time speed up
-                float lerpFactor = (_lastSpeed > nextSpeed ? 4f : 2f);
-                speed = Mathf.Lerp(_lastSpeed, nextSpeed, lerpFactor * Time.deltaTime);
-            }
-            else // no friction, speed changes slower
-            {
-                speed = Mathf.Lerp(_lastSpeed, nextSpeed, 0.125f * Time.deltaTime);
-            }
-
-            // prevent floating if jumping into a ceiling
-            if (isCeiling)
-            {
-                speed = crouchWalkSpeed; // clamp speed to crouched
-
-                if (_fauxGravity.y > 0)
-                {
-                    _fauxGravity.y = -1f; // 0;
-                }
-            }
-
-            _lastSpeed = speed; // update reference
-
-            // - Add Gravity -
-            _fauxGravity.y += gravity * Time.deltaTime;
-
-            // - Move -
-
-            calc = move * (speed * Time.deltaTime);
-            calc += _fauxGravity * Time.deltaTime;
-
-            _controller.Move(calc);
-
-            // - DEBUG -
+// 
+            // // - Slipping Jumping Gravity -
+// 
+            // // Smooth speed  // ?????????? What????
+            // float speed;
+// 
+            // if (isGrounded)
+            // {
+            //     if (isSlipping) // slip down slope
+            //     {
+            //         // Movement left/right while slipping down
+            //         // Player rotation to slope
+            //         Vector3 slopeRight = Quaternion.LookRotation(Vector3.right) * groundSlopeDir;
+            //         float dot = Vector3.Dot(slopeRight, _playerTransform.right);
+            //         // Move on X axis, with Y rotation relative to slopeDir
+            //         move = slopeRight * (dot > 0 ? inputMove.x : -inputMove.x);
+// 
+            //         // Speed
+            //         nextSpeed = Mathf.Lerp(currSpeed, runSpeed, 5f * Time.deltaTime);
+// 
+            //         // Increase angular gravity
+            //         float mag = _fauxGravity.magnitude;
+            //         calc = Vector3.Slerp(_fauxGravity, groundSlopeDir * runSpeed, 4f * Time.deltaTime);
+            //         _fauxGravity = calc.normalized * mag;
+            //     }
+            //     else
+            //     {
+            //         // reset angular fauxGravity movement
+            //         _fauxGravity.x = 0;
+            //         _fauxGravity.z = 0;
+// 
+            //         if (_fauxGravity.y < 0) // constant grounded gravity
+            //         {
+            //             //fauxGravity.y = -1f;
+            //             _fauxGravity.y = Mathf.Lerp(_fauxGravity.y, -1f, 4f * Time.deltaTime);
+            //         }
+            //     }
+// 
+            //     // - Jump -
+            //     if (!isCeiling && inputKeyJump) // jump
+            //     {
+            //         _fauxGravity.y = Mathf.Sqrt(jumpHeight * -2f * gravity);
+            //     }
+// 
+            //     // --
+// 
+            //     // - smooth speed -
+            //     // take less time to slow down, more time speed up
+            //     float lerpFactor = (_lastSpeed > nextSpeed ? 4f : 2f);
+            //     speed = Mathf.Lerp(_lastSpeed, nextSpeed, lerpFactor * Time.deltaTime);
+            // }
+            // else // no friction, speed changes slower
+            // {
+            //     speed = Mathf.Lerp(_lastSpeed, nextSpeed, 0.125f * Time.deltaTime);
+            // }
+// 
+            // // prevent floating if jumping into a ceiling
+            // if (isCeiling)
+            // {
+            //     speed = crouchWalkSpeed; // clamp speed to crouched
+// 
+            //     if (_fauxGravity.y > 0)
+            //     {
+            //         _fauxGravity.y = -1f; // 0;
+            //     }
+            // }
+// 
+            // _lastSpeed = speed; // update reference
+            // 
+            // // - Add Gravity -
+            // _fauxGravity.y += gravity * Time.deltaTime;
+// 
+            // // Do movement calculations
+            // calc = move * (speed * Time.deltaTime);
+            // calc += _fauxGravity * Time.deltaTime;
+            // 
+            // // Apply speed cap
+            // calc = new Vector3(
+            //     Mathf.Clamp(calc.x, -horizontalSpeedCap, horizontalSpeedCap),
+            //     Mathf.Clamp(calc.y, -horizontalSpeedCap, horizontalSpeedCap),
+            //     Mathf.Clamp(calc.z, -verticalSpeedCap, verticalSpeedCap)
+            //     );
+            // 
+            // _controller.Move(calc);
+            // 
+            // // - DEBUG -
 
 #if UNITY_EDITOR
             // slope angle and fauxGravity debug info
-            if (showGizmos)
-            {
-                calc = _playerTx.position;
-                calc.y += _groundOffsetY;
-                Debug.DrawRay(calc, groundSlopeDir.normalized * 5f, Color.blue);
-                Debug.DrawRay(calc, _fauxGravity, Color.green);
-            }
+            // if (showGizmos)
+            // {
+            //     calc = _playerTransform.position;
+            //     calc.y += _groundOffsetY;
+            //     Debug.DrawRay(calc, groundSlopeDir.normalized * 5f, Color.blue);
+            //     Debug.DrawRay(calc, _fauxGravity, Color.green);
+            // }
 #endif
         }
 
-        private void DoCursorLock(bool? doLock = null)
+        private static void DoCursorLock(bool? doLock = null)
         {
             switch (doLock)
             {
@@ -449,20 +471,18 @@ namespace Player
         }
 
         // check the area above, for standing from crouch
-        void CeilingCheck()
+        private void CeilingCheck()
         {
-            Vector3 origin = new Vector3(_playerTx.position.x, _playerTx.position.y + _ceilingOffsetY,
-                _playerTx.position.z);
+            Vector3 origin = new(_playerTransform.position.x, _playerTransform.position.y + _ceilingOffsetY, _playerTransform.position.z);
 
             isCeiling = Physics.CheckSphere(origin, sphereCastRadius, castingMask);
         }
 
         // find if isGrounded, slope angle and directional vector
-        void GroundCheck()
+        private void GroundCheck()
         {
             //Vector3 origin = new Vector3( transform.position.x, transform.position.y - (controller.height / 2) + startDistanceFromBottom, transform.position.z );
-            Vector3 origin = new Vector3(_playerTx.position.x, _playerTx.position.y + _groundOffsetY,
-                _playerTx.position.z);
+            Vector3 origin = new(_playerTransform.position.x, _playerTransform.position.y + _groundOffsetY, _playerTransform.position.z);
 
             // Out hit point from our cast(s)
             RaycastHit hit;
@@ -497,49 +517,50 @@ namespace Player
             RaycastHit slopeHit2;
 
             // FIRST RAYCAST
-            if (Physics.Raycast(origin + rayOriginOffset1, Vector3.down, out slopeHit1, raycastLength))
+            if (!Physics.Raycast(origin + rayOriginOffset1, Vector3.down, out slopeHit1, raycastLength)) return;
+            // Debug line to first hit point
+#if UNITY_EDITOR
+            if (showGizmos)
             {
-                // Debug line to first hit point
+                Debug.DrawLine(origin + rayOriginOffset1, slopeHit1.point, Color.red);
+            }
+#endif
+            // Get angle of slope on hit normal
+            float angleOne = Vector3.Angle(slopeHit1.normal, Vector3.up);
+
+            // 2ND RAYCAST
+            if (Physics.Raycast(origin + rayOriginOffset2, Vector3.down, out slopeHit2, raycastLength))
+            {
+                // Debug line to second hit point
 #if UNITY_EDITOR
                 if (showGizmos)
                 {
-                    Debug.DrawLine(origin + rayOriginOffset1, slopeHit1.point, Color.red);
+                    Debug.DrawLine(origin + rayOriginOffset2, slopeHit2.point, Color.red);
                 }
 #endif
-                // Get angle of slope on hit normal
-                float angleOne = Vector3.Angle(slopeHit1.normal, Vector3.up);
-
-                // 2ND RAYCAST
-                if (Physics.Raycast(origin + rayOriginOffset2, Vector3.down, out slopeHit2, raycastLength))
-                {
-                    // Debug line to second hit point
-#if UNITY_EDITOR
-                    if (showGizmos)
-                    {
-                        Debug.DrawLine(origin + rayOriginOffset2, slopeHit2.point, Color.red);
-                    }
-#endif
-                    // Get angle of slope of these two hit points.
-                    float angleTwo = Vector3.Angle(slopeHit2.normal, Vector3.up);
-                    // 3 collision points: Take the MEDIAN by sorting array and grabbing middle.
-                    float[] tempArray = { groundSlopeAngle, angleOne, angleTwo };
-                    groundSlopeAngle = tempArray[1];
-                }
-                else
-                {
-                    // 2 collision points (sphere and first raycast): AVERAGE the two
-                    float average = (groundSlopeAngle + angleOne) / 2;
-                    groundSlopeAngle = average;
-                }
+                // Get angle of slope of these two hit points.
+                float angleTwo = Vector3.Angle(slopeHit2.normal, Vector3.up);
+                // 3 collision points: Take the MEDIAN by sorting array and grabbing middle.
+                float[] tempArray = { groundSlopeAngle, angleOne, angleTwo };
+                groundSlopeAngle = tempArray[1];
+            }
+            else
+            {
+                // 2 collision points (sphere and first raycast): AVERAGE the two
+                float average = (groundSlopeAngle + angleOne) / 2;
+                groundSlopeAngle = average;
             }
         }
 
-        // this script pushes all rigidbodies that the character touches
+        /// <summary>
+        /// Push rigid-bodies the player is colliding with.
+        /// </summary>
+        /// <param name="hit">The object the player is hitting</param>
         private void OnControllerColliderHit(ControllerColliderHit hit)
         {
             Rigidbody body = hit.collider.attachedRigidbody;
 
-            // no rigidbody
+            // No rigidbody found
             if (body == null || body.isKinematic)
             {
                 return;
@@ -551,8 +572,7 @@ namespace Player
                 return;
             }
 
-            // If you know how fast your character is trying to move,
-            // then you can also multiply the push velocity by that.
+            // If you know how fast your character is trying to move, then you can also multiply the push velocity by that.
             body.velocity = hit.moveDirection * _lastSpeed;
         }
 
@@ -567,12 +587,13 @@ namespace Player
                 _ceilingOffsetY = ceilingCheckY;
             }
 
-            Vector3 startPoint = new(transform.position.x, transform.position.y + _groundOffsetY, transform.position.z);
+            Vector3 position = transform.position;
+            Vector3 startPoint = new(position.x, position.y + _groundOffsetY, position.z);
             Vector3 endPoint = startPoint + new Vector3(0, -sphereCastDistance, 0);
-            Vector3 ceilingPoint = new(transform.position.x, transform.position.y + _ceilingOffsetY,
-                transform.position.z);
+            Vector3 ceilingPoint = new(position.x, position.y + _ceilingOffsetY,
+                position.z);
 
-            Gizmos.color = (isGrounded == true ? Color.green : Color.white);
+            Gizmos.color = (isGrounded ? Color.green : Color.white);
             Gizmos.DrawWireSphere(startPoint, sphereCastRadius);
 
             Gizmos.color = Color.gray;
@@ -580,7 +601,7 @@ namespace Player
 
             Gizmos.DrawLine(startPoint, endPoint);
 
-            Gizmos.color = (isCeiling == true ? Color.red : Color.white);
+            Gizmos.color = (isCeiling ? Color.red : Color.white);
             Gizmos.DrawWireSphere(ceilingPoint, sphereCastRadius);
         }
 #endif
@@ -635,7 +656,7 @@ namespace Player
                 mainCamObject.transform.localPosition = new Vector3(0, 1.7f, 0);
                 mainCamObject.transform.localRotation = Quaternion.identity;
 
-                basicFPCC.cameraTx = mainCamObject.transform;
+                basicFPCC._playerCameraTransform = mainCamObject.transform;
             }
             else // create example camera
             {
@@ -649,7 +670,7 @@ namespace Player
                 camGo.transform.localPosition = new Vector3(0, 1.7f, 0);
                 camGo.transform.localRotation = Quaternion.identity;
 
-                basicFPCC.cameraTx = camGo.transform;
+                basicFPCC._playerCameraTransform = camGo.transform;
             }
 
             // GFX
