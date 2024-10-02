@@ -1,23 +1,23 @@
 // ------------------------------------------ 
 // BasicFPCC.cs
-// a basic first person character controller
-// with jump, crouch, run, slide
-// 2020-10-04 Alucard Jay Kay 
+// A basic first person character controller
+// with jump, crouch, run, sprint, climb
+//
+// Modified from BasicFPCC.cs 2020-10-04 Alucard Jay Kay https://discussions.unity.com/t/855344
 // ------------------------------------------ 
 
-// source : 
+// ------------------------------------------
+// Other Sources : 
 // https://discussions.unity.com/t/855344
 // Brackeys FPS controller base : 
 // https://www.youtube.com/watch?v=_QajrabyTJc
-// smooth mouse look : 
-// https://discussions.unity.com/t/710168/2
 // ground check : (added isGrounded)
 // https://gist.github.com/jawinn/f466b237c0cdc5f92d96
 // run, crouch, slide : (added check for headroom before un-crouching)
 // https://answers.unity.com/questions/374157/character-controller-slide-action-script.html
 // interact with rigidbodies : 
 // https://docs.unity3d.com/2018.4/Documentation/ScriptReference/CharacterController.OnControllerColliderHit.html
-
+// 
 // ** SETUP **
 // Assign the BasicFPCC object to its own Layer
 // Assign the Layer Mask to ignore the BasicFPCC object Layer
@@ -27,16 +27,19 @@
 // alternatively : 
 // at the end of this script is a Menu Item function to create and auto-configure a BasicFPCC object
 // GameObject -> 3D Object -> BasicFPCC
-
-using UnityEngine.Serialization;
+//
+// TODOs
+// 1. Implement a sprint-vector check to ensure the player is only sprinting forwards to disallow sprinting backwards
+//
+// ------------------------------------------
 
 namespace Player
 {
-    using Player.Config;
+    using Config;
     using UnityEngine;
-
+    using UnityEngine.InputSystem;
+    
 #if UNITY_EDITOR // only required if using the Menu Item function at the end of this script
-    using UnityEditor;
 #endif
 
     [RequireComponent(typeof(CharacterController))]
@@ -54,41 +57,24 @@ namespace Player
 
         [Header("Main Camera")]
         public Transform cameraTx; // Main Camera, as child of BasicFPCC object
+        public Camera playerCamera;
 
         [Header("Optional Player Graphic")] [Tooltip("optional capsule to visualize player in scene view")]
         public Transform playerGfx; // optional capsule graphic object
 
-        [Header("Inputs")] [Tooltip("Disable if sending inputs from an external script")]
-        public bool useLocalInputs = true;
-
+        // Grab input actions class
+        private PlayerControls _playerControls;
         [Space(5)]
-        public string axisLookHorizontal = "Mouse X"; // Mouse to Look
-        public string axisLookVertical = "Mouse Y"; //
-        public string axisMoveHorizontal = "Horizontal"; // WASD to Move
-        public string axisMoveVertical = "Vertical"; //
-        public KeyCode keyRun = KeyCode.LeftShift; // Left Shift to Run
-        public KeyCode keySprint = KeyCode.LeftShift; // Left Shift to Sprint
-        public KeyCode keyCrouch = KeyCode.LeftControl; // Left Control to Crouch
-        public KeyCode keyJump = KeyCode.Space; // Space to Jump
-        public KeyCode keySlide = KeyCode.F; // F to Slide (only when running)
-        public KeyCode keyToggleCursor = KeyCode.BackQuote; // ` to toggle lock cursor (aka [~] console key)
-
         // Input Variables that can be assigned externally the cursor can also be manually locked or freed by calling the public void SetLockCursor( bool doLock )
-        [HideInInspector] public float inputLookX = 0; //
-        [HideInInspector] public float inputLookY = 0; //
-        [HideInInspector] public float inputMoveX = 0; // range -1f to +1f
-        [HideInInspector] public float inputMoveY = 0; // range -1f to +1f
+        [HideInInspector] public Vector2 inputLook;
+        [HideInInspector] public Vector2 inputMove;
         [HideInInspector] public bool inputKeyRun = false; // is key Held
+        [HideInInspector] public bool inputKeySprint = false;
         [HideInInspector] public bool inputKeyCrouch = false; // is key Held
-        [HideInInspector] public bool inputKeyDownJump = false; // is key Pressed
-        [HideInInspector] public bool inputKeyDownSlide = false; // is key Pressed
-        [HideInInspector] public bool inputKeyDownCursor = false; // is key Pressed
+        [HideInInspector] public bool inputKeyJump = false; // is key Pressed
 
-        [HideInInspector] private float _mouseSensitivityX = 2f; // speed factor of look X
-        [HideInInspector] private float _mouseSensitivityY = 2f; // speed factor of look Y
-
-        [Tooltip("larger values for less filtering, more responsiveness")]
-        public float mouseSnappiness = 2000f; // default was 10f; larger values of this cause less filtering, more responsiveness
+        private bool _lookEnabled = true;
+        private Vector2 _mouseSensitivity = new Vector2(1f, 1f);
 
         public bool invertLookY = false; // toggle invert look Y
         public float clampLookY = 90f; // maximum look up/down angle
@@ -102,17 +88,12 @@ namespace Player
         public float jumpHeight = 2.5f;
 
         [Header("Grounded Settings")]
-        [
-            Tooltip(
-            "The starting position of the isGrounded spherecast. Set to the sphereCastRadius plus the CC Skin Width. Enable showGizmos to visualize."  // What?
-            )
-        ]
+        [Tooltip("The starting position of the isGrounded spherecast. Set to the sphereCastRadius plus the CC Skin Width. Enable showGizmos to visualize.")]  // What???
         // This should be just above the base of the cc, in the amount of the skin width (in case the cc sinks in)
         //public float startDistanceFromBottom = 0.2f;
         public float groundCheckY = 0.33f; // 0.25 + 0.08 (sphereCastRadius + CC skin width)
 
-        [Tooltip(
-            "The position of the ceiling checksphere. Set to the height minus sphereCastRadius plus the CC Skin Width. Enable showGizmos to visualize.")]
+        [Tooltip("The position of the ceiling checksphere. Set to the height minus sphereCastRadius plus the CC Skin Width. Enable showGizmos to visualize.")]
         // this should extend above the cc (by approx skin width) so player can still move when not at full height (not crouching, trying to stand up),
         // otherwise if it's below the top then the cc gets stuck
         public float ceilingCheckY = 1.83f; // 2.00 - 0.25 + 0.08 (height - sphereCastRadius + CC skin width)
@@ -141,43 +122,63 @@ namespace Player
         public Vector3 groundSlopeDir = Vector3.zero; // The calculated slope as a vector
         private float _groundOffsetY = 0; // calculated offset relative to height
         public bool isSlipping = false;
-        [Space(5)] public bool isSliding = false;
-        public float slideTimer = 0; // current slide duration
-        public Vector3 slideForward = Vector3.zero; // direction of the slide
-        [Space(5)] public bool isCeiling = false;
+
+        [Space(5)] 
+        public bool isCeiling = false;
         private float _ceilingOffsetY = 0; // calculated offset relative to height
-        [Space(5)] public bool cursorActive = false; // cursor state
 
-
-        void Start()
+        // ------------------------------------------------------------------------------------------------------------------------
+        // ----------------------------------------       Input Manager Boilerplate        ----------------------------------------
+        
+        // Create actions
+        private InputAction _jump;
+        private InputAction _toggleCursor;
+        
+        
+        
+        private void Awake()
         {
-            Initialize();
+            _playerControls = new PlayerControls();
         }
 
-        void Update()
+        private void OnEnable()
         {
-            // Check for settings updates for expensive calculations
-            if (_playerConfig.updated)
-            {
-                _playerConfig.updated = false;
-                _mouseSensitivityX = _playerConfig.MouseSensitivity;
-                _mouseSensitivityY = _playerConfig.MouseSensitivity;
-                invertLookY = _playerConfig.InvertYAxis;
-            }
-
-            ProcessInputs();
-            ProcessLook();
-            ProcessMovement();
+            _playerControls.Enable();
+            _toggleCursor = _playerControls.Player.ShowCursor;
+            _toggleCursor.Enable();
+            
+            // Assign actions
+            // ReSharper disable All
+            _toggleCursor.performed += ActionCursorLock;  // Not exactly sure why Intellij is detecting this as an error 
+            // ReSharper restore All
         }
 
-        private void Initialize()
+        private void OnDisable()
         {
-            // Do whatever this is
-            if (!cameraTx)
-            {
-                Debug.LogError("* " + gameObject.name + ": BasicFPCC has NO CAMERA ASSIGNED in the Inspector *");
-            }
+            _playerControls.Disable();
+        }
 
+        // ----------------------------------------     END Input Manager Boilerplate      ----------------------------------------
+        // ------------------------------------------------------------------------------------------------------------------------
+        
+        
+        // ------------------------------------------------------------------------------------------------------------------------
+        // ----------------------------------------             Handle Inputs              ----------------------------------------
+
+        private void ActionCursorLock(InputAction.CallbackContext context)
+        {
+            Debug.Log("Toggle cursor lock");
+            DoCursorLock();
+            _lookEnabled = !_lookEnabled;
+        }
+        
+        // ----------------------------------------           END Handle Inputs            ----------------------------------------
+        // ------------------------------------------------------------------------------------------------------------------------
+
+
+        private void Start()
+        {
+            // Get required components
             _controller = GetComponent<CharacterController>();
             _playerConfig = GetComponent<PlayerConfig>();
 
@@ -190,40 +191,42 @@ namespace Player
             _groundOffsetY = groundCheckY;
             _ceilingOffsetY = ceilingCheckY;
 
-            RefreshCursor();
+            // Lock cursor by default
+            Cursor.lockState = CursorLockMode.Locked;
         }
 
-        private void ProcessInputs()
+        private void Update()
         {
-            if (useLocalInputs)
+            // Check for settings updates for expensive calculations
+            if (_playerConfig.updated)
             {
-                inputLookX = Input.GetAxis(axisLookHorizontal);
-                inputLookY = Input.GetAxis(axisLookVertical);
-
-                inputMoveX = Input.GetAxis(axisMoveHorizontal);
-                inputMoveY = Input.GetAxis(axisMoveVertical);
-
-                inputKeyRun = Input.GetKey(keyRun);
-                inputKeyCrouch = Input.GetKey(keyCrouch);
-
-                inputKeyDownJump = Input.GetKeyDown(keyJump);
-                inputKeyDownSlide = Input.GetKeyDown(keySlide);
-                inputKeyDownCursor = Input.GetKeyDown(keyToggleCursor);
+                _playerConfig.updated = false;
+                _mouseSensitivity.x = _playerConfig.MouseSensitivity;
+                _mouseSensitivity.y = _playerConfig.MouseSensitivity;
+                invertLookY = _playerConfig.InvertYAxis;
             }
-
-            if (inputKeyDownCursor)
-            {
-                ToggleLockCursor();
-            }
+            ReadInputs();
+            ProcessLook();
+            ProcessMovement();
         }
 
+        private void ReadInputs()
+        {
+            // Read in input values
+            inputLook = _playerControls.Player.Look.ReadValue<Vector2>();
+            inputMove = _playerControls.Player.Move.ReadValue<Vector2>();
+            inputKeyRun = _playerControls.Player.Run.ReadValue<float>() >= 0.5f;
+            inputKeySprint = _playerControls.Player.Sprint.ReadValue<float>() >= 0.5f;
+            inputKeyCrouch = _playerControls.Player.Crouch.ReadValue<float>() >= 0.5f;
+            inputKeyJump = _playerControls.Player.Jump.ReadValue<float>() >= 0.5f;
+        }
+        
+        
         private void ProcessLook()
         {
-            // accMouseX = Mathf.Lerp( accMouseX, inputLookX, mouseSnappiness * Time.deltaTime );
-            // accMouseY = Mathf.Lerp( accMouseY, inputLookY, mouseSnappiness * Time.deltaTime );
-
-            float mouseX = inputLookX * _mouseSensitivityX * 100f * Time.deltaTime;
-            float mouseY = inputLookY * _mouseSensitivityY * 100f * Time.deltaTime;
+            
+            float mouseX = inputLook.x * _mouseSensitivity.x * 100f * Time.deltaTime;
+            float mouseY = inputLook.y * _mouseSensitivity.y * 100f * Time.deltaTime;
 
             // Rotate camera X
             xRotation += invertLookY ? mouseY : -mouseY;
@@ -242,26 +245,25 @@ namespace Player
             float h = _defaultHeight;
             float nextSpeed = walkSpeed;
             Vector3 calc; // used for calculations
-            Vector3 move; // direction calculation
 
             // Player current speed
             float currSpeed = (_playerTx.position - _lastPos).magnitude / Time.deltaTime;
-            currSpeed = (currSpeed < 0 ? 0 - currSpeed : currSpeed); // abs value
+            currSpeed = currSpeed < 0 ? 0 - currSpeed : currSpeed; // Get the absolute value, regardless of vector direction
 
-            // - Check if Grounded -
+            // Grounded Checks
             GroundCheck();
+            isSlipping = groundSlopeAngle > _controller.slopeLimit;
 
-            isSlipping = (groundSlopeAngle > _controller.slopeLimit ? true : false);
-
-            // - Check Ceiling above for Head Room -
+            // Headroom Check
             CeilingCheck();
 
             // - Run and Crouch -
 
-            // if grounded, and not stuck on ceiling
-            if (isGrounded && !isCeiling && inputKeyRun)
+            // If the player is grounded and not stuck on ceiling, apply speed increases
+            if (isGrounded && !isCeiling)
             {
-                nextSpeed = runSpeed; // to run speed
+                if (inputKeyRun) nextSpeed = runSpeed;
+                if (inputKeySprint) nextSpeed = sprintSpeed;
             }
 
             if (inputKeyCrouch) // Crouch
@@ -273,22 +275,22 @@ namespace Player
 
             // - Slide -
 
-            // if not sliding, and not stuck on ceiling, and is running
-            if (!isSliding && !isCeiling && inputKeyRun && inputKeyDownSlide) // slide
-            {
-                // check velocity is faster than walkSpeed
-                if (currSpeed > walkSpeed)
-                {
-                    slideTimer = 0; // start slide timer
-                    isSliding = true;
-                    slideForward = (_playerTx.position - _lastPos).normalized;
-                }
-            }
-            _lastPos = _playerTx.position; // update reference
+            // // if not sliding, and not stuck on ceiling, and is running
+            // if (!isCeiling && inputKeyRun && inputKeyDownSlide) // slide
+            // {
+            //     // check velocity is faster than walkSpeed
+            //     if (currSpeed > walkSpeed)
+            //     {
+            //         slideTimer = 0; // start slide timer
+            //         isSliding = true;
+            //         slideForward = (_playerTx.position - _lastPos).normalized;
+            //     }
+            // }
+            // _lastPos = _playerTx.position; // update reference
 
 
             // - Player Move Input -
-            move = (_playerTx.right * inputMoveX) + (_playerTx.forward * inputMoveY);
+            Vector3 move = (_playerTx.right * inputMove.x) + (_playerTx.forward * inputMove.y); // direction calculation
 
             if (move.magnitude > 1f)
             {
@@ -300,11 +302,7 @@ namespace Player
 
             // crouch/stand up smoothly
             float lastHeight = _controller.height;
-            float
-                nextHeight =
-                    Mathf.Lerp(_controller.height, h,
-                        5f * Time
-                            .deltaTime); // FIXME: This is causing the player to never complete crouching, as it's always lerping towards the crouch height but never reaching it
+            float nextHeight = Mathf.Lerp(_controller.height, h, 5f * Time.deltaTime); 
 
             // if crouching, or only stand if there is no ceiling
             if (nextHeight < lastHeight || !isCeiling)
@@ -341,24 +339,24 @@ namespace Player
 
             // - Slipping Jumping Gravity -
 
-            // smooth speed
+            // Smooth speed  // ?????????? What????
             float speed;
 
             if (isGrounded)
             {
                 if (isSlipping) // slip down slope
                 {
-                    // movement left/right while slipping down
-                    // player rotation to slope
+                    // Movement left/right while slipping down
+                    // Player rotation to slope
                     Vector3 slopeRight = Quaternion.LookRotation(Vector3.right) * groundSlopeDir;
                     float dot = Vector3.Dot(slopeRight, _playerTx.right);
-                    // move on X axis, with Y rotation relative to slopeDir
-                    move = slopeRight * (dot > 0 ? inputMoveX : -inputMoveX);
+                    // Move on X axis, with Y rotation relative to slopeDir
+                    move = slopeRight * (dot > 0 ? inputMove.x : -inputMove.x);
 
-                    // speed
+                    // Speed
                     nextSpeed = Mathf.Lerp(currSpeed, runSpeed, 5f * Time.deltaTime);
 
-                    // increase angular gravity
+                    // Increase angular gravity
                     float mag = _fauxGravity.magnitude;
                     calc = Vector3.Slerp(_fauxGravity, groundSlopeDir * runSpeed, 4f * Time.deltaTime);
                     _fauxGravity = calc.normalized * mag;
@@ -377,7 +375,7 @@ namespace Player
                 }
 
                 // - Jump -
-                if (!isSliding && !isCeiling && inputKeyDownJump) // jump
+                if (!isCeiling && inputKeyJump) // jump
                 {
                     _fauxGravity.y = Mathf.Sqrt(jumpHeight * -2f * gravity);
                 }
@@ -431,29 +429,22 @@ namespace Player
 #endif
         }
 
-        // lock/hide or show/unlock cursor
-        public void SetLockCursor(bool doLock)
+        private void DoCursorLock(bool? doLock = null)
         {
-            cursorActive = doLock;
-            RefreshCursor();
-        }
-
-        void ToggleLockCursor()
-        {
-            cursorActive = !cursorActive;
-            RefreshCursor();
-        }
-
-        void RefreshCursor()
-        {
-            if (!cursorActive && Cursor.lockState != CursorLockMode.Locked)
+            switch (doLock)
             {
-                Cursor.lockState = CursorLockMode.Locked;
-            }
-
-            if (cursorActive && Cursor.lockState != CursorLockMode.None)
-            {
-                Cursor.lockState = CursorLockMode.None;
+                case null when Cursor.lockState == CursorLockMode.Locked:  // When doLock is null and the cursor is locked, unlock it
+                    Cursor.lockState = CursorLockMode.None;
+                    return;
+                case null:  // When doLock is null, the previous check has failed we know that the cursor is unlocked 
+                    Cursor.lockState = CursorLockMode.Locked;
+                    return;
+                case true:
+                    Cursor.lockState = CursorLockMode.Locked;
+                    return;
+                default:
+                    Cursor.lockState = CursorLockMode.None;
+                    break;
             }
         }
 
@@ -500,7 +491,7 @@ namespace Player
             } // --
 
             // Now that's all fine and dandy, but on edges, corners, etc, we get angle values that we don't want.
-            // To correct for this, let's do some raycasts. You could do more raycasts, and check for more
+            // To correct for this, let's do some ray-casts. You could do more ray-casts, and check for more
             // edge cases here. There are lots of situations that could pop up, so test and see what gives you trouble.
             RaycastHit slopeHit1;
             RaycastHit slopeHit2;
@@ -531,8 +522,7 @@ namespace Player
                     // Get angle of slope of these two hit points.
                     float angleTwo = Vector3.Angle(slopeHit2.normal, Vector3.up);
                     // 3 collision points: Take the MEDIAN by sorting array and grabbing middle.
-                    float[] tempArray = new float[] { groundSlopeAngle, angleOne, angleTwo };
-                    System.Array.Sort(tempArray);
+                    float[] tempArray = { groundSlopeAngle, angleOne, angleTwo };
                     groundSlopeAngle = tempArray[1];
                 }
                 else
@@ -596,7 +586,7 @@ namespace Player
 #endif
     }
 
-
+    /*
 // =======================================================================================================================================
 
 // ** DELETE from here down, if menu item and auto configuration is NOT Required **
@@ -673,5 +663,6 @@ namespace Player
             basicFPCC.playerGfx = gfx.transform;
         }
 #endif
-    }
+    } 
+*/
 }
