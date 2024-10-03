@@ -47,7 +47,7 @@ namespace Player
 #if UNITY_EDITOR // only required if using the Menu Item function at the end of this script
 #endif
 
-    [RequireComponent(typeof(CharacterController))]
+    //[RequireComponent(typeof(CharacterController))]
     [RequireComponent(typeof(PlayerConfig))]
     public class PlayerController : MonoBehaviour
     {
@@ -58,7 +58,6 @@ namespace Player
         // - Components -
         private CharacterController _controller; // CharacterController component
         private PlayerConfig _playerConfig; // PlayerConfig component
-        private Transform _playerTransform; // this player object
 
         [Header("Main Camera")]
         public Transform playerCameraTransform; // Main Camera, as child of BasicFPCC object
@@ -84,6 +83,8 @@ namespace Player
         public bool invertLookY = false; // toggle invert look Y
         public float clampLookY = 90f; // maximum look up/down angle
 
+        private float _cameraXRotation = 0f;
+
         [Header("Move Settings")]
         public float crouchWalkSpeed = 3f;
         public float walkSpeed = 7f;
@@ -91,50 +92,15 @@ namespace Player
         public float sprintSpeed = 16f;
         public float gravity = -9.81f;
         public float jumpHeight = 1f;
-        public float horizontalSpeedCap = 15f;
-        public float verticalSpeedCap = 15f;
+        public float horizontalSpeedCap = 240f;  // Realistic terminal velocity of a human
+        public float verticalSpeedCap = 240f;
 
-        [Header("Grounded Settings")]
-        [Tooltip("The starting position of the isGrounded spherecast. Set to the sphereCastRadius plus the CC Skin Width. Enable showGizmos to visualize.")]  // What???
-        // This should be just above the base of the cc, in the amount of the skin width (in case the cc sinks in)
-        //public float startDistanceFromBottom = 0.2f;
-        public float groundCheckY = 0.33f; // 0.25 + 0.08 (sphereCastRadius + CC skin width)
-
-        [Tooltip("The position of the ceiling checksphere. Set to the height minus sphereCastRadius plus the CC Skin Width. Enable showGizmos to visualize.")]
-        // this should extend above the cc (by approx skin width) so player can still move when not at full height (not crouching, trying to stand up),
-        // otherwise if it's below the top then the cc gets stuck
-        public float ceilingCheckY = 1.83f; // 2.00 - 0.25 + 0.08 (height - sphereCastRadius + CC skin width)
-
-        [Space(5)] public float sphereCastRadius = 0.25f; // radius of area to detect for ground
-        public float sphereCastDistance = 0.75f; // How far spherecast moves down from origin point
-        [Space(5)] public float raycastLength = 0.75f; // secondary raycasts (match to sphereCastDistance)
-        public Vector3 rayOriginOffset1 = new(-0.2f, 0f, 0.16f);
-        public Vector3 rayOriginOffset2 = new(0.2f, 0f, -0.16f);
-
-        [Header("Debug Gizmos")] [Tooltip("Show debug gizmos and lines")]
-        public bool showGizmos = false; // Show debug gizmos and lines
-
-        // - private reference variables -  // What does this even mean?
+        private Vector3 _velocity = Vector3.zero;
+        private float _targetSpeedFactor = 0f;
         
         // Reference variables
         private float _defaultHeight; // Normal player height, used for scaling down on crouch
         private float _cameraDefaultY; // Normal camera Y position within player
-
-        [Header("- reference variables -")] public float xRotation = 0f; // the up/down angle the player is looking
-        private float _lastSpeed = 0; // reference for calculating speed
-
-        private Vector3 _fauxGravity = Vector3.zero; // calculated gravity
-
-        private Vector3 _lastPos = Vector3.zero; // reference for player velocity
-        [Space(5)] public bool isGrounded = false;
-        public float groundSlopeAngle = 0f; // Angle of the slope in degrees
-        public Vector3 groundSlopeDir = Vector3.zero; // The calculated slope as a vector
-        private float _groundOffsetY = 0; // calculated offset relative to height
-        public bool isSlipping = false;
-
-        [Space(5)] 
-        public bool isCeiling = false;
-        private float _ceilingOffsetY = 0; // calculated offset relative to height
 
         // ------------------------------------------------------------------------------------------------------------------------
         // ----------------------------------------       Input Manager Boilerplate        ----------------------------------------
@@ -193,28 +159,29 @@ namespace Player
 
             _defaultHeight = _controller.height;
             _cameraDefaultY = playerCameraTransform.localPosition.y;
-            
-            _lastPos = _playerTransform.position;
-            _groundOffsetY = groundCheckY;
-            _ceilingOffsetY = ceilingCheckY;
 
             // Lock cursor by default
             Cursor.lockState = CursorLockMode.Locked;
         }
 
-        private void FixedUpdate()
+        private void Update()
         {
-            // Check for settings updates for expensive calculations
-            if (_playerConfig.updated)
-            {
-                _playerConfig.updated = false;
-                _mouseSensitivity.x = _playerConfig.MouseSensitivity;
-                _mouseSensitivity.y = _playerConfig.MouseSensitivity;
-                invertLookY = _playerConfig.InvertYAxis;
-            }
             ReadInputs();
             HandleCamera();
+
+        }
+
+        private void FixedUpdate()
+        {
+            // Handle movement in fixed update
             ProcessMovement();
+
+            // Check for settings updates for expensive calculations
+            if (!_playerConfig.updated) return;
+            _playerConfig.updated = false;
+            _mouseSensitivity.x = _playerConfig.MouseSensitivity;
+            _mouseSensitivity.y = _playerConfig.MouseSensitivity;
+            invertLookY = _playerConfig.InvertYAxis;
         }
 
         private void ReadInputs()
@@ -228,36 +195,74 @@ namespace Player
             inputKeyJump = _playerControls.Player.Jump.ReadValue<float>() >= 0.5f;
         }
         
-        
+        /// <summary>
+        /// Handle camera rotation.
+        /// </summary>
         private void HandleCamera()
         {
-            // TODO: Fix the jittery movement
-            float mouseX = inputLook.x * _mouseSensitivity.x * 100f * Time.fixedDeltaTime;
-            float mouseY = inputLook.y * _mouseSensitivity.y * 100f * Time.fixedDeltaTime;
+            // Get mouse input
+            float mouseX = inputLook.x * _mouseSensitivity.x * 100f * Time.deltaTime;
+            float mouseY = inputLook.y * _mouseSensitivity.y * 100f * Time.deltaTime;
 
             // Rotate camera X
-            xRotation += invertLookY ? mouseY : -mouseY;
-            xRotation = Mathf.Clamp(xRotation, -clampLookY, clampLookY);
+            float xRotationFactor = invertLookY ? mouseY : -mouseY;
 
-            playerCameraTransform.localRotation = Quaternion.Euler(xRotation, 0f, 0f);
+            // Get current x rotation
+            _cameraXRotation = playerCamera.transform.localRotation.eulerAngles.x + xRotationFactor;
+
+            // Clamp rotation
+            if (_cameraXRotation > 180) _cameraXRotation -= 360;  // Normalize the rotation (0 - 360)
+            _cameraXRotation = Mathf.Clamp(_cameraXRotation, -clampLookY, clampLookY);
+
+            // Apply rotation
+            playerCamera.transform.localRotation = Quaternion.Euler(_cameraXRotation, 0f, 0f);  // This is jumping back to
 
             // Rotate player Y
-            _playerTransform.Rotate(Vector3.up * mouseX);
+            transform.Rotate(Vector3.up * mouseX);
         }
 
-        private void OnCollisionEnter(Collision other)
+        private static void DoCursorLock(bool? doLock = null)
         {
-            
-        }
-
-        private void OnCollisionExit(Collision other)
-        {
-            
+            switch (doLock)
+            {
+                case null when Cursor.lockState == CursorLockMode.Locked:  // When doLock is null and the cursor is locked, unlock it
+                    Cursor.lockState = CursorLockMode.None;
+                    return;
+                case null:  // When doLock is null, the previous check has failed we know that the cursor is unlocked
+                    Cursor.lockState = CursorLockMode.Locked;
+                    return;
+                case true:
+                    Cursor.lockState = CursorLockMode.Locked;
+                    return;
+                default:
+                    Cursor.lockState = CursorLockMode.None;
+                    break;
+            }
         }
 
         private void ProcessMovement()
         {
-            
+            // Apply speed increases
+            _targetSpeedFactor = walkSpeed;
+            if (inputKeyRun) _targetSpeedFactor = runSpeed;
+            if (inputKeySprint) _targetSpeedFactor = sprintSpeed;
+            if (inputKeyCrouch) _targetSpeedFactor = crouchWalkSpeed;
+
+            // Do jump movement
+            if (inputKeyJump && _controller.isGrounded)
+            {
+                Debug.Log("Jumping");
+                _velocity.y += jumpHeight;
+            }
+
+            // Apply gravity
+            if (!_controller.isGrounded) _velocity.y += gravity * Time.deltaTime * 0.5f;
+
+            // Calculate movement
+            float localSpeedFactor = _targetSpeedFactor * Time.deltaTime;
+            Vector3 move = transform.right * (inputMove.x * localSpeedFactor) + transform.forward * (inputMove.y * localSpeedFactor) + (_velocity);
+            _controller.Move(move);
+
         }
 
         /*
@@ -468,24 +473,7 @@ namespace Player
 #endif
         }
 
-        private static void DoCursorLock(bool? doLock = null)
-        {
-            switch (doLock)
-            {
-                case null when Cursor.lockState == CursorLockMode.Locked:  // When doLock is null and the cursor is locked, unlock it
-                    Cursor.lockState = CursorLockMode.None;
-                    return;
-                case null:  // When doLock is null, the previous check has failed we know that the cursor is unlocked
-                    Cursor.lockState = CursorLockMode.Locked;
-                    return;
-                case true:
-                    Cursor.lockState = CursorLockMode.Locked;
-                    return;
-                default:
-                    Cursor.lockState = CursorLockMode.None;
-                    break;
-            }
-        }
+
 
         // check the area above, for standing from crouch
         private void CeilingCheck()
