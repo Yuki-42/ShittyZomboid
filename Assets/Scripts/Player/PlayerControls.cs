@@ -89,6 +89,15 @@ public partial class @PlayerControls: IInputActionCollection2, IDisposable
                     ""processors"": """",
                     ""interactions"": """",
                     ""initialStateCheck"": false
+                },
+                {
+                    ""name"": ""ShowUI"",
+                    ""type"": ""Button"",
+                    ""id"": ""7c04f63f-7cac-48dc-bb6b-dfbd34b1ac2f"",
+                    ""expectedControlType"": ""Button"",
+                    ""processors"": """",
+                    ""interactions"": """",
+                    ""initialStateCheck"": false
                 }
             ],
             ""bindings"": [
@@ -265,6 +274,17 @@ public partial class @PlayerControls: IInputActionCollection2, IDisposable
                     ""processors"": """",
                     ""groups"": ""Keyboard&Mouse"",
                     ""action"": ""ShowCursor"",
+                    ""isComposite"": false,
+                    ""isPartOfComposite"": false
+                },
+                {
+                    ""name"": """",
+                    ""id"": ""3f97103e-d0cd-4aec-b852-74e4050a40a4"",
+                    ""path"": ""<Keyboard>/f3"",
+                    ""interactions"": """",
+                    ""processors"": """",
+                    ""groups"": ""Keyboard&Mouse"",
+                    ""action"": ""ShowUI"",
                     ""isComposite"": false,
                     ""isPartOfComposite"": false
                 }
@@ -859,6 +879,7 @@ public partial class @PlayerControls: IInputActionCollection2, IDisposable
         m_Player_Crouch = m_Player.FindAction("Crouch", throwIfNotFound: true);
         m_Player_Jump = m_Player.FindAction("Jump", throwIfNotFound: true);
         m_Player_ShowCursor = m_Player.FindAction("ShowCursor", throwIfNotFound: true);
+        m_Player_ShowUI = m_Player.FindAction("ShowUI", throwIfNotFound: true);
         // UI
         m_UI = asset.FindActionMap("UI", throwIfNotFound: true);
         m_UI_Navigate = m_UI.FindAction("Navigate", throwIfNotFound: true);
@@ -939,6 +960,7 @@ public partial class @PlayerControls: IInputActionCollection2, IDisposable
     private readonly InputAction m_Player_Crouch;
     private readonly InputAction m_Player_Jump;
     private readonly InputAction m_Player_ShowCursor;
+    private readonly InputAction m_Player_ShowUI;
     public struct PlayerActions
     {
         private @PlayerControls m_Wrapper;
@@ -950,6 +972,7 @@ public partial class @PlayerControls: IInputActionCollection2, IDisposable
         public InputAction @Crouch => m_Wrapper.m_Player_Crouch;
         public InputAction @Jump => m_Wrapper.m_Player_Jump;
         public InputAction @ShowCursor => m_Wrapper.m_Player_ShowCursor;
+        public InputAction @ShowUI => m_Wrapper.m_Player_ShowUI;
         public InputActionMap Get() { return m_Wrapper.m_Player; }
         public void Enable() { Get().Enable(); }
         public void Disable() { Get().Disable(); }
@@ -980,6 +1003,9 @@ public partial class @PlayerControls: IInputActionCollection2, IDisposable
             @ShowCursor.started += instance.OnShowCursor;
             @ShowCursor.performed += instance.OnShowCursor;
             @ShowCursor.canceled += instance.OnShowCursor;
+            @ShowUI.started += instance.OnShowUI;
+            @ShowUI.performed += instance.OnShowUI;
+            @ShowUI.canceled += instance.OnShowUI;
         }
 
         private void UnregisterCallbacks(IPlayerActions instance)
@@ -1005,6 +1031,9 @@ public partial class @PlayerControls: IInputActionCollection2, IDisposable
             @ShowCursor.started -= instance.OnShowCursor;
             @ShowCursor.performed -= instance.OnShowCursor;
             @ShowCursor.canceled -= instance.OnShowCursor;
+            @ShowUI.started -= instance.OnShowUI;
+            @ShowUI.performed -= instance.OnShowUI;
+            @ShowUI.canceled -= instance.OnShowUI;
         }
 
         public void RemoveCallbacks(IPlayerActions instance)
@@ -1194,6 +1223,7 @@ public partial class @PlayerControls: IInputActionCollection2, IDisposable
         void OnCrouch(InputAction.CallbackContext context);
         void OnJump(InputAction.CallbackContext context);
         void OnShowCursor(InputAction.CallbackContext context);
+        void OnShowUI(InputAction.CallbackContext context);
     }
     public interface IUIActions
     {

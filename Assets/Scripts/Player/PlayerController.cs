@@ -58,6 +58,7 @@ namespace Player
         // - Components -
         private CharacterController _controller; // CharacterController component
         private PlayerConfig _playerConfig; // PlayerConfig component
+        public Canvas canvas; // Canvas component
 
         [Header("Main Camera")]
         public Transform playerCameraTransform; // Main Camera, as child of BasicFPCC object
@@ -94,9 +95,11 @@ namespace Player
         public float jumpHeight = 1f;
         public float horizontalSpeedCap = 240f;  // Realistic terminal velocity of a human
         public float verticalSpeedCap = 240f;
+        public float acceleration = 2f;
 
         private Vector3 _velocity = Vector3.zero;
         private float _targetSpeedFactor = 0f;
+        private float _previousSpeed = 0f;
         
         // Reference variables
         private float _defaultHeight; // Normal player height, used for scaling down on crouch
@@ -106,8 +109,8 @@ namespace Player
         // ----------------------------------------       Input Manager Boilerplate        ----------------------------------------
         
         // Create actions
-        private InputAction _jump;
         private InputAction _toggleCursor;
+        private InputAction _toggleUI;
         
         
         
@@ -121,10 +124,14 @@ namespace Player
             _playerControls.Enable();
             _toggleCursor = _playerControls.Player.ShowCursor;
             _toggleCursor.Enable();
+
+            _toggleUI = _playerControls.Player.ShowUI;
+            _toggleUI.Enable();
             
             // Assign actions
             // ReSharper disable All
-            _toggleCursor.performed += ActionCursorLock;  // Not exactly sure why Intellij is detecting this as an error 
+            _toggleCursor.performed += ActionCursorLock;  // Not exactly sure why Intellij is detecting this as an error
+            _toggleUI.performed += ActionShowUI;
             // ReSharper restore All
         }
 
@@ -145,6 +152,12 @@ namespace Player
             Debug.Log("Toggle cursor lock");
             DoCursorLock();
             _lookEnabled = !_lookEnabled;
+        }
+
+        private void ActionShowUI(InputAction.CallbackContext context)
+        {
+            Debug.Log("Show UI");
+            canvas.enabled = !canvas.enabled;
         }
         
         // ----------------------------------------           END Handle Inputs            ----------------------------------------
@@ -248,6 +261,22 @@ namespace Player
             if (inputKeySprint) _targetSpeedFactor = sprintSpeed;
             if (inputKeyCrouch) _targetSpeedFactor = crouchWalkSpeed;
 
+            //_targetSpeedFactor /= 5;
+
+            // Add acceleration
+            float localSpeedFactor = _previousSpeed;
+            if (_previousSpeed < _targetSpeedFactor)
+            {
+                localSpeedFactor += acceleration * Time.deltaTime;
+                if (localSpeedFactor > _targetSpeedFactor) localSpeedFactor = _targetSpeedFactor;
+            } if (_previousSpeed > _targetSpeedFactor)
+            {
+                localSpeedFactor -= acceleration * Time.deltaTime;
+                if (localSpeedFactor < _targetSpeedFactor) localSpeedFactor = _targetSpeedFactor;
+            }
+
+            localSpeedFactor *= Time.deltaTime;
+
             // Do jump movement
             if (inputKeyJump && _controller.isGrounded)
             {
@@ -259,10 +288,11 @@ namespace Player
             if (!_controller.isGrounded) _velocity.y += gravity * Time.deltaTime * 0.5f;
 
             // Calculate movement
-            float localSpeedFactor = _targetSpeedFactor * Time.deltaTime;
             Vector3 move = transform.right * (inputMove.x * localSpeedFactor) + transform.forward * (inputMove.y * localSpeedFactor) + (_velocity);
             _controller.Move(move);
 
+            // Note previous speed
+            _previousSpeed = _targetSpeedFactor;
         }
 
         /*
