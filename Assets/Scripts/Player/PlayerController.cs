@@ -30,10 +30,12 @@
 //
 // TODOs
 // 1. Implement a sprint-vector check to ensure the player is only sprinting forwards to disallow sprinting backwards
-// 2. Rework the movement system to use character acceleration instead of directly moving the character
-// 3. Clamp both vertical and horizontal max speed.
-// 4. Fix insane speed issue when falling off solid surface
+// 2. Clamp both vertical and horizontal max speed.
+// 3. Fix the jump strength and insane gravity
 //
+//
+// Fixed:
+// - Fix insane speed issue when falling off solid surface
 // ------------------------------------------
 
 using System;
@@ -71,17 +73,10 @@ namespace Player
         private PlayerControls _playerControls;
         [Space(5)]
         // Input Variables that can be assigned externally the cursor can also be manually locked or freed by calling the public void SetLockCursor( bool doLock )
-        [HideInInspector] public Vector2 inputLook;
-        [HideInInspector] public Vector2 inputMove;
-        [HideInInspector] public bool inputKeyRun = false; // is key Held
-        [HideInInspector] public bool inputKeySprint = false;
-        [HideInInspector] public bool inputKeyCrouch = false; // is key Held
-        [HideInInspector] public bool inputKeyJump = false; // is key Pressed
-
         private bool _lookEnabled = true;
         private Vector2 _mouseSensitivity = new Vector2(1f, 1f);
 
-        public bool invertLookY = false; // toggle invert look Y
+        private bool _invertLookY = false; // toggle invert look Y
         public float clampLookY = 90f; // maximum look up/down angle
 
         private float _cameraXRotation = 0f;
@@ -104,7 +99,8 @@ namespace Player
         // Reference variables
         private float _defaultHeight; // Normal player height, used for scaling down on crouch
         private float _cameraDefaultY; // Normal camera Y position within player
-
+        
+        
         // ------------------------------------------------------------------------------------------------------------------------
         // ----------------------------------------       Input Manager Boilerplate        ----------------------------------------
         
@@ -112,7 +108,13 @@ namespace Player
         private InputAction _toggleCursor;
         private InputAction _toggleUI;
         
-        
+        // Create input variables
+        [HideInInspector] public Vector2 inputLook;
+        [HideInInspector] public Vector2 inputMove;
+        [HideInInspector] public bool inputKeyRun = false; // is key Held
+        [HideInInspector] public bool inputKeySprint = false;
+        [HideInInspector] public bool inputKeyCrouch = false; // is key Held
+        [HideInInspector] public bool inputKeyJump = false; // is key Pressed
         
         private void Awake()
         {
@@ -181,20 +183,20 @@ namespace Player
         {
             ReadInputs();
             HandleCamera();
-
+            ProcessMovement();
         }
 
         private void FixedUpdate()
         {
             // Handle movement in fixed update
-            ProcessMovement();
+            
 
             // Check for settings updates for expensive calculations
             if (!_playerConfig.updated) return;
             _playerConfig.updated = false;
             _mouseSensitivity.x = _playerConfig.MouseSensitivity;
             _mouseSensitivity.y = _playerConfig.MouseSensitivity;
-            invertLookY = _playerConfig.InvertYAxis;
+            _invertLookY = _playerConfig.InvertYAxis;
         }
 
         private void ReadInputs()
@@ -213,12 +215,14 @@ namespace Player
         /// </summary>
         private void HandleCamera()
         {
+            if (!_lookEnabled) return;
+            
             // Get mouse input
             float mouseX = inputLook.x * _mouseSensitivity.x * 100f * Time.deltaTime;
             float mouseY = inputLook.y * _mouseSensitivity.y * 100f * Time.deltaTime;
 
             // Rotate camera X
-            float xRotationFactor = invertLookY ? mouseY : -mouseY;
+            float xRotationFactor = _invertLookY ? mouseY : -mouseY;
 
             // Get current x rotation
             _cameraXRotation = playerCamera.transform.localRotation.eulerAngles.x + xRotationFactor;
@@ -281,11 +285,11 @@ namespace Player
             if (inputKeyJump && _controller.isGrounded)
             {
                 Debug.Log("Jumping");
-                _velocity.y += jumpHeight;
+                _velocity.y += jumpHeight / 100;
             }
 
             // Apply gravity
-            if (!_controller.isGrounded) _velocity.y += gravity * Time.deltaTime * 0.5f;
+            if (!_controller.isGrounded) _velocity.y += (gravity / 100) * Time.deltaTime * 0.5f;
 
             // Calculate movement
             Vector3 move = transform.right * (inputMove.x * localSpeedFactor) + transform.forward * (inputMove.y * localSpeedFactor) + (_velocity);
