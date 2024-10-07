@@ -1,8 +1,6 @@
-﻿using System;
-using UnityEngine;
-using UnityEngine.Serialization;
+﻿using UnityEngine;
 
-namespace Player.Config
+namespace Config
 {
     public class PlayerConfig : MonoBehaviour
     {

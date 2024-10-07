@@ -38,14 +38,12 @@
 // - Fix insane speed issue when falling off solid surface
 // ------------------------------------------
 
-using System;
+using Config;
+using UnityEngine;
+using UnityEngine.InputSystem;
 
-namespace Player
+namespace Old
 {
-    using Config;
-    using UnityEngine;
-    using UnityEngine.InputSystem;
-    
 #if UNITY_EDITOR // only required if using the Menu Item function at the end of this script
 #endif
 
